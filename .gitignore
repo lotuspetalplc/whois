@@ -1,0 +1,29 @@
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+
+# Optional: Local environment
+.env.local
+.env
+
+# Node modules (if you add any build tools later)
+node_modules/
+
+# Build outputs (if added later)
+dist/
+build/
+
+# Netlify
+.netlify/
