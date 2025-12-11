@@ -1,82 +1,108 @@
 /* ====================================
-   IP Lookup Module
+   IP Lookup - MULTIPLE FREE APIs + FALLBACK
    ==================================== */
 
 let currentIPData = null;
-
-document.addEventListener('DOMContentLoaded', () => {
-    const query = getQueryParam('q');
-    const searchInput = document.getElementById('searchInput');
-    
-    if (searchInput && query) {
-        searchInput.value = query;
-        performLookup();
-    }
-});
 
 async function performLookup() {
     const searchInput = document.getElementById('searchInput');
     const ip = searchInput?.value.trim();
     
-    if (!ip) {
-        showNotification('Please enter an IP address', 'error');
+    if (!ip || !isValidIP(ip)) {
+        showNotification('Please enter a valid IP address (e.g., 8.8.8.8)', 'error');
         return;
     }
     
     showLoading();
     
     try {
-        // Using ipapi.co free API (no key required)
-        const response = await axios.get(`https://ipapi.co/${encodeURIComponent(ip)}/json/`);
+        // TRY API #1: ip-api.com (RELIABLE, FREE)
+        let data = await tryIPAPI(`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,message,continent,continentCode,country,countryCode,region,regionName,city,district,zip,lat,lon,timezone,offset,currency,isp,org,as,orgName,query`);
         
-        if (response.data.error) {
-            throw new Error(response.data.reason || 'Invalid IP address');
+        // TRY API #2: ipinfo.io (FREE tier)
+        if (!data || data.status === 'fail') {
+            data = await tryIPAPI(`https://ipinfo.io/${ip}/json`);
         }
         
-        currentIPData = response.data;
-        displayIPInfo(response.data);
+        // TRY API #3: ipapi.co (backup)
+        if (!data || data.error) {
+            data = await tryIPAPI(`https://ipapi.co/${encodeURIComponent(ip)}/json/`);
+        }
+        
+        if (!data || (data.status === 'fail' && data.message)) {
+            throw new Error(data.message || 'Invalid IP address');
+        }
+        
+        currentIPData = normalizeIPData(data);
+        displayIPInfo(currentIPData);
         showResults();
+        addToHistory(ip, 'IP');
         
     } catch (error) {
         console.error('IP Lookup Error:', error);
-        showError('Failed to fetch IP information. Please check the IP address and try again.');
-        showNotification('IP lookup failed', 'error');
+        showError(`IP lookup failed: ${error.message}`);
+        showNotification('IP lookup unavailable - try WHOIS/DNS instead', 'warning');
     }
 }
 
+async function tryIPAPI(url) {
+    try {
+        const response = await axios.get(url, { timeout: 8000 });
+        return response.data;
+    } catch (error) {
+        console.warn('IP API failed:', url, error.message);
+        return null;
+    }
+}
+
+function normalizeIPData(data) {
+    return {
+        ip: data.query || data.ip || data.ip_address,
+        country_name: data.country || data.country_name,
+        country_code: data.countryCode || data.country_code,
+        region: data.regionName || data.region,
+        city: data.city,
+        postal: data.zip || data.postal,
+        latitude: data.lat || data.latitude,
+        longitude: data.lon || data.longitude,
+        timezone: data.timezone,
+        org: data.isp || data.org || data.organization,
+        asn: data.as || data.asn?.asn || 'N/A',
+        network: data.orgName || data.network || 'N/A'
+    };
+}
+
+function isValidIP(ip) {
+    const ipv4Regex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+    const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/;
+    return ipv4Regex.test(ip) || ipv6Regex.test(ip);
+}
+
 function displayIPInfo(data) {
-    // IP Overview
     const ipOverview = document.getElementById('ipOverview');
     if (ipOverview) {
         ipOverview.innerHTML = `
-            ${createDataRow('IP Address', data.ip)}
-            ${createDataRow('Version', data.version || 'IPv4')}
-            ${createDataRow('Network', data.network || 'N/A')}
-            ${createDataRow('ASN', data.asn || 'N/A')}
+            ${createDataRow('IP Address', `<code class="font-mono">${data.ip}</code>`)}
+            ${createDataRow('ASN', data.asn)}
+            ${createDataRow('Network', data.network)}
         `;
     }
     
-    // Geolocation
     const geolocation = document.getElementById('geolocation');
     if (geolocation) {
         geolocation.innerHTML = `
-            ${createDataRow('Country', `${data.country_name} (${data.country_code})`)}
+            ${createDataRow('Country', data.country_name || 'N/A')}
             ${createDataRow('Region', data.region || 'N/A')}
             ${createDataRow('City', data.city || 'N/A')}
-            ${createDataRow('Postal Code', data.postal || 'N/A')}
-            ${createDataRow('Timezone', data.timezone || 'N/A')}
             ${createDataRow('Coordinates', data.latitude && data.longitude ? `${data.latitude}, ${data.longitude}` : 'N/A')}
         `;
     }
     
-    // Network Information
     const networkInfo = document.getElementById('networkInfo');
     if (networkInfo) {
         networkInfo.innerHTML = `
-            ${createDataRow('Organization', data.org || 'N/A')}
-            ${createDataRow('ISP', data.org || 'N/A')}
-            ${createDataRow('Currency', data.currency ? `${data.currency} (${data.currency_name})` : 'N/A')}
-            ${createDataRow('Languages', data.languages || 'N/A')}
+            ${createDataRow('ISP/Organization', data.org || 'N/A')}
+            ${createDataRow('Timezone', data.timezone || 'N/A')}
         `;
     }
     
